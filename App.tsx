@@ -1,21 +1,82 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Layout from './components/Layout';
 import SupportForm from './components/SupportForm';
-import { TabType, ProductCategory } from './types';
-import { PRODUCTS } from './constants';
+import { TabType, ProductCategory, AppNotification, Product } from './types';
+import { PRODUCTS, MOCK_NOTIFICATIONS } from './constants';
 
 const App: React.FC = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('home');
   const [ticketId, setTicketId] = useState<string | null>(null);
   const [supportSubPage, setSupportSubPage] = useState<'menu' | 'warranty' | 'history' | null>('menu');
+  const [accountSubPage, setAccountSubPage] = useState<'menu' | 'edit' | 'history' | null>('menu');
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  
+  // Quản lý lịch sử các tab đã truy cập
+  const [tabHistory, setTabHistory] = useState<TabType[]>(['home']);
+  const [notifications, setNotifications] = useState<AppNotification[]>(MOCK_NOTIFICATIONS);
+
+  // Theo dõi thay đổi tab để lưu lịch sử
+  useEffect(() => {
+    if (activeTab === tabHistory[tabHistory.length - 1]) return;
+    setTabHistory(prev => [...prev, activeTab]);
+  }, [activeTab]);
+
+  const unreadCount = useMemo(() => 
+    notifications.filter(n => !n.isRead).length, 
+  [notifications]);
+
+  const handleMarkAllRead = () => {
+    setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+  };
+
+  const handleReadSingle = (id: string) => {
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
+  };
+
+  // Logic xử lý quay lại trang trước
+  const handleBack = () => {
+    if (selectedProduct) {
+      setSelectedProduct(null);
+      return;
+    }
+
+    if (activeTab === 'support' && supportSubPage !== 'menu') {
+      if (ticketId) {
+        setTicketId(null);
+      }
+      setSupportSubPage('menu');
+      return;
+    }
+
+    if (activeTab === 'account' && accountSubPage !== 'menu') {
+      setAccountSubPage('menu');
+      return;
+    }
+
+    if (activeTab === 'home') return;
+
+    if (tabHistory.length > 1) {
+      const newHistory = [...tabHistory];
+      newHistory.pop();
+      const prevTab = newHistory[newHistory.length - 1];
+      setTabHistory(newHistory);
+      setActiveTab(prevTab);
+    } else {
+      setActiveTab('home');
+    }
+  };
 
   const getTitle = () => {
+    if (selectedProduct) return 'Chi tiết thiết bị';
+    if (activeTab === 'support' && supportSubPage === 'warranty') return 'Kiểm tra bảo hành';
+    if (activeTab === 'account' && accountSubPage === 'edit') return 'Chỉnh sửa thông tin';
     switch(activeTab) {
       case 'home': return 'SOLPOWER';
-      case 'products': return 'Sản phẩm';
+      case 'products': return 'Danh mục thiết bị';
       case 'support': return 'Hỗ trợ kỹ thuật';
+      case 'notifications': return 'Thông báo';
       case 'account': return 'Tài khoản';
       default: return 'SOLPOWER';
     }
@@ -26,30 +87,412 @@ const App: React.FC = () => {
       return <AuthScreen onLoginSuccess={() => setIsLoggedIn(true)} />;
     }
 
+    if (selectedProduct) {
+      return <ProductDetailView 
+        product={selectedProduct} 
+        onBack={() => setSelectedProduct(null)} 
+        onSupport={() => {
+          setSelectedProduct(null);
+          setActiveTab('support');
+          setSupportSubPage('warranty');
+        }}
+      />;
+    }
+
     switch (activeTab) {
       case 'home':
         return <HomeScreen onWarranty={() => { setActiveTab('support'); setSupportSubPage('warranty'); }} onSupport={() => setActiveTab('support')} />;
       case 'products':
-        return <ProductsScreen />;
+        return <ProductsScreen onSelectProduct={(p) => setSelectedProduct(p)} />;
+      case 'notifications':
+        return <NotificationsScreen 
+          notifications={notifications} 
+          onMarkAllRead={handleMarkAllRead} 
+          onReadSingle={handleReadSingle}
+        />;
       case 'support':
         if (ticketId) return <TicketSuccessScreen ticketId={ticketId} onReset={() => { setTicketId(null); setSupportSubPage('menu'); }} />;
-        if (supportSubPage === 'warranty') return <SupportForm onSuccess={(id) => setTicketId(id)} onBack={() => setSupportSubPage('menu')} />;
+        if (supportSubPage === 'warranty') return <SupportForm onSuccess={(id) => setTicketId(id)} onBack={handleBack} />;
         return <SupportMenu onNavigate={(page) => setSupportSubPage(page as any)} />;
       case 'account':
-        return <AccountScreen onLogout={() => setIsLoggedIn(false)} />;
+        if (accountSubPage === 'edit') return <ProfileEditScreen onBack={() => setAccountSubPage('menu')} />;
+        return <AccountScreen 
+          onLogout={() => { setIsLoggedIn(false); setTabHistory(['home']); }} 
+          onEditProfile={() => setAccountSubPage('edit')}
+        />;
       default:
         return null;
     }
   };
 
   return (
-    <Layout activeTab={activeTab} setActiveTab={(t) => { setActiveTab(t); setSupportSubPage('menu'); }} title={getTitle()} hideNav={!isLoggedIn}>
+    <Layout 
+      activeTab={activeTab} 
+      setActiveTab={(t) => { 
+        setActiveTab(t); 
+        setSupportSubPage('menu'); 
+        setAccountSubPage('menu');
+        setSelectedProduct(null);
+      }} 
+      title={getTitle()} 
+      hideNav={!isLoggedIn}
+      unreadNotificationsCount={unreadCount}
+      // Fixed: Simplified logic to avoid TypeScript narrowing errors.
+      // If activeTab is not 'home', it is already 'account', 'support', 'products', or 'notifications',
+      // so the redundant checks for subpages are not needed here just to decide if the back button shows.
+      onBack={(activeTab !== 'home' || !!selectedProduct) ? handleBack : undefined}
+    >
       {renderContent()}
     </Layout>
   );
 };
 
-// --- AUTH SCREEN (Wrapper for Login, SignUp, Forgot, Policies) ---
+// --- PROFILE EDIT SCREEN ---
+const ProfileEditScreen = ({ onBack }: { onBack: () => void }) => {
+  const [formData, setFormData] = useState({
+    name: 'Nguyễn Văn An',
+    phone: '0987 654 321',
+    email: 'vanan.solar@gmail.com',
+    currentPass: '',
+    newPass: '',
+    confirmPass: ''
+  });
+
+  const handleSave = () => {
+    // Logic lưu thông tin ở đây
+    alert('Thông tin đã được cập nhật thành công!');
+    onBack();
+  };
+
+  return (
+    <div className="page-transition px-6 pb-20 space-y-8">
+      {/* Avatar Section */}
+      <div className="flex flex-col items-center gap-4 py-4">
+        <div className="relative group">
+          <div className="size-28 rounded-[2.5rem] bg-white p-1 shadow-soft overflow-hidden border-2 border-primary/10">
+            <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Felix" className="size-full rounded-[2.2rem] object-cover" alt="Avatar" />
+          </div>
+          <button className="absolute bottom-0 right-0 size-9 bg-primary text-white rounded-full border-4 border-bgLight flex items-center justify-center shadow-lg active:scale-90 transition-all">
+            <span className="material-symbols-outlined text-lg">photo_camera</span>
+          </button>
+        </div>
+        <p className="text-[10px] font-bold text-primary uppercase tracking-widest">Thay đổi ảnh đại diện</p>
+      </div>
+
+      {/* Profile Form */}
+      <div className="space-y-5">
+        <h3 className="text-primary text-[10px] font-black uppercase tracking-[0.2em] opacity-60">Thông tin cá nhân</h3>
+        <div className="space-y-4">
+          <EditInput label="Họ và tên" value={formData.name} icon="person" onChange={(v) => setFormData({...formData, name: v})} />
+          <EditInput label="Số điện thoại" value={formData.phone} icon="call" onChange={(v) => setFormData({...formData, phone: v})} />
+          <EditInput label="Email" value={formData.email} icon="mail" onChange={(v) => setFormData({...formData, email: v})} />
+        </div>
+      </div>
+
+      {/* Password Form */}
+      <div className="space-y-5 pt-4">
+        <h3 className="text-primary text-[10px] font-black uppercase tracking-[0.2em] opacity-60">Bảo mật & Mật khẩu</h3>
+        <div className="space-y-4">
+          <EditInput label="Mật khẩu hiện tại" value={formData.currentPass} icon="lock" isPassword placeholder="••••••••" onChange={(v) => setFormData({...formData, currentPass: v})} />
+          <EditInput label="Mật khẩu mới" value={formData.newPass} icon="key" isPassword placeholder="••••••••" onChange={(v) => setFormData({...formData, newPass: v})} />
+          <EditInput label="Xác nhận mật khẩu mới" value={formData.confirmPass} icon="verified_user" isPassword placeholder="••••••••" onChange={(v) => setFormData({...formData, confirmPass: v})} />
+        </div>
+      </div>
+
+      {/* Save Button */}
+      <div className="pt-6">
+        <button 
+          onClick={handleSave}
+          className="w-full bg-primary text-white py-4 rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-primary/20 active:scale-95 transition-all"
+        >
+          Lưu thay đổi
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const EditInput = ({ label, value, icon, isPassword, placeholder, onChange }: any) => {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="space-y-1.5">
+      <label className="text-[10px] font-bold text-textMuted uppercase tracking-wider ml-1">{label}</label>
+      <div className="relative">
+        <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-primary/40 text-lg">{icon}</span>
+        <input 
+          type={isPassword && !show ? "password" : "text"}
+          value={value}
+          placeholder={placeholder}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full pl-12 pr-12 py-3.5 bg-white border-none rounded-xl text-sm font-semibold text-textMain focus:ring-2 focus:ring-primary/20 transition-all shadow-card"
+        />
+        {isPassword && (
+          <button onClick={() => setShow(!show)} className="absolute right-4 top-1/2 -translate-y-1/2 text-primary/40">
+            <span className="material-symbols-outlined text-lg">{show ? 'visibility_off' : 'visibility'}</span>
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// --- PRODUCT DETAIL VIEW ---
+const ProductDetailView = ({ product, onBack, onSupport }: { product: Product, onBack: () => void, onSupport: () => void }) => {
+  return (
+    <div className="page-transition pb-40">
+      {/* Product Image Hero */}
+      <div className="px-4">
+        <div className="relative bg-white rounded-3xl overflow-hidden shadow-soft border border-gray-100 aspect-[4/3]">
+          <img src={product.image} className="size-full object-cover" alt={product.name} />
+          <div className="absolute top-4 left-4">
+            <span className="px-3 py-1 bg-primary/90 backdrop-blur-md text-white text-[10px] font-black uppercase rounded-full tracking-wider shadow-sm">
+              {product.category.replace('_', ' ')}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Basic Info */}
+      <div className="px-6 py-6 space-y-2">
+        <div className="flex justify-between items-start gap-4">
+          <h2 className="text-xl font-black text-textMain leading-tight flex-1">{product.name}</h2>
+          <span className="text-lg font-black text-secondary whitespace-nowrap">{product.price || 'Liên hệ'}</span>
+        </div>
+        <p className="text-sm font-bold text-textMuted uppercase tracking-tight">Model: {product.model}</p>
+      </div>
+
+      {/* Action Buttons Quick */}
+      <div className="px-4 grid grid-cols-2 gap-3 mb-8">
+        <button onClick={onSupport} className="flex items-center justify-center gap-2 py-3.5 bg-secondary/10 text-secondary rounded-2xl font-bold text-xs active:scale-95 transition-all">
+          <span className="material-symbols-outlined text-lg">verified_user</span>
+          Bảo hành
+        </button>
+        <button className="flex items-center justify-center gap-2 py-3.5 bg-primary/10 text-primary rounded-2xl font-bold text-xs active:scale-95 transition-all">
+          <span className="material-symbols-outlined text-lg">download</span>
+          Tài liệu PDF
+        </button>
+      </div>
+
+      {/* Specifications */}
+      <div className="px-6 space-y-4">
+        <h3 className="text-[11px] font-black text-primary uppercase tracking-[0.2em] opacity-60">Thông số kỹ thuật</h3>
+        <div className="grid grid-cols-1 gap-3">
+          {Object.entries(product.specs).map(([key, val]) => (
+            <div key={key} className="flex items-center justify-between p-4 bg-white rounded-2xl shadow-card border border-gray-50">
+              <span className="text-sm font-bold text-textMuted">{key}</span>
+              <span className="text-sm font-black text-textMain">{val}</span>
+            </div>
+          ))}
+          <div className="flex items-center justify-between p-4 bg-white rounded-2xl shadow-card border border-gray-50">
+            <span className="text-sm font-bold text-textMuted">Bảo hành</span>
+            <span className="text-sm font-black text-primary">{product.warrantyMonths} tháng</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Description / Content Placeholder */}
+      <div className="px-6 mt-8 space-y-4">
+        <h3 className="text-[11px] font-black text-primary uppercase tracking-[0.2em] opacity-60">Đặc điểm nổi bật</h3>
+        <div className="prose prose-sm text-textMuted leading-relaxed">
+          <p>Sản phẩm chính hãng SOLPOWER được sản xuất trên dây chuyền công nghệ hiện đại, đáp ứng các tiêu chuẩn khắt khe nhất về an toàn năng lượng. Thiết kế bền bỉ, dễ dàng lắp đặt và bảo trì.</p>
+          <ul className="list-disc pl-5 space-y-2 mt-2 font-medium">
+            <li>Hiệu suất chuyển đổi năng lượng tối ưu.</li>
+            <li>Chống chịu thời tiết khắc nghiệt (IP65/IP67).</li>
+            <li>Hỗ trợ giám sát thông minh qua ứng dụng.</li>
+          </ul>
+        </div>
+      </div>
+
+      {/* BOTTOM ACTION BAR */}
+      <div className="fixed bottom-20 left-0 right-0 z-40 max-w-md mx-auto px-4 pb-4">
+        <div className="bg-white/80 backdrop-blur-xl border border-white/20 p-3 rounded-[2.5rem] shadow-[0_8px_32px_rgba(0,0,0,0.12)] flex items-center gap-2">
+          {/* Chat/Message Button */}
+          <button className="size-12 rounded-full bg-bgLight flex items-center justify-center text-primary active:scale-90 transition-all shrink-0">
+            <span className="material-symbols-outlined filled-icon">chat</span>
+          </button>
+          
+          {/* Add to Cart Button */}
+          <button className="flex-1 flex items-center justify-center gap-2 bg-secondary/10 text-secondary py-3.5 rounded-[1.5rem] font-black text-[10px] uppercase tracking-wider active:scale-95 transition-all">
+            <span className="material-symbols-outlined text-lg">add_shopping_cart</span>
+            Thêm giỏ
+          </button>
+
+          {/* Buy Now / Contact Button */}
+          <button className="flex-[1.5] flex items-center justify-center gap-2 bg-primary text-white py-3.5 rounded-[1.5rem] font-black text-[10px] uppercase tracking-wider shadow-lg shadow-primary/20 active:scale-95 transition-all">
+            <span className="material-symbols-outlined text-lg filled-icon">bolt</span>
+            Mua ngay
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- PRODUCTS SCREEN ---
+const CATEGORY_DATA: { label: string; value: ProductCategory; icon: string }[] = [
+  { label: 'Tất cả', value: 'all', icon: 'apps' },
+  { label: 'Tấm pin', value: 'panel', icon: 'solar_power' },
+  { label: 'Biến tần', value: 'inverter', icon: 'settings_input_component' },
+  { label: 'Pin lưu trữ', value: 'battery', icon: 'battery_charging_full' },
+  { label: 'Bơm nước', value: 'pump_inverter', icon: 'water_drop' },
+  { label: 'Combo tự lắp', value: 'diy_combo', icon: 'package_2' },
+  { label: 'Thiết bị điện', value: 'electrical', icon: 'electrical_services' },
+  { label: 'Tủ điện', value: 'cabinet', icon: 'door_open' },
+];
+
+const ProductsScreen = ({ onSelectProduct }: { onSelectProduct: (p: Product) => void }) => {
+  const [selectedCategory, setSelectedCategory] = useState<ProductCategory>('all');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const filteredProducts = useMemo(() => {
+    return PRODUCTS.filter(p => {
+      const matchCategory = selectedCategory === 'all' || p.category === selectedCategory;
+      const matchSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                          p.model.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchCategory && matchSearch;
+    });
+  }, [selectedCategory, searchQuery]);
+
+  return (
+    <div className="page-transition space-y-5 pb-10">
+      {/* Search Bar */}
+      <div className="px-4">
+        <div className="relative group">
+          <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-primary transition-colors text-xl">search</span>
+          <input 
+            type="text" 
+            placeholder="Tìm tên hoặc mã sản phẩm..." 
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-11 pr-4 py-3 bg-white border-none rounded-2xl shadow-sm text-sm font-medium focus:ring-2 focus:ring-primary/20 transition-all"
+          />
+        </div>
+      </div>
+
+      {/* 8-Item Category Grid */}
+      <div className="px-4 space-y-4">
+        <div className="flex items-center justify-between px-1">
+          <h3 className="text-primary text-[10px] font-black uppercase tracking-[0.15em] opacity-80">Phân loại thiết bị</h3>
+          <button 
+            onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
+            className="flex items-center gap-1.5 text-textMuted active:scale-95 transition-transform"
+          >
+            <span className="material-symbols-outlined text-[20px]">{viewMode === 'grid' ? 'view_list' : 'grid_view'}</span>
+          </button>
+        </div>
+        
+        <div className="grid grid-cols-4 gap-x-2 gap-y-3">
+          {CATEGORY_DATA.map((cat) => (
+            <button
+              key={cat.value}
+              onClick={() => setSelectedCategory(cat.value)}
+              className={`flex flex-col items-center justify-center py-2.5 px-1 rounded-2xl transition-all border text-center relative ${
+                selectedCategory === cat.value
+                  ? 'bg-primary text-white border-primary shadow-lg shadow-primary/20 translate-y-[-2px]'
+                  : 'bg-white text-textMuted border-transparent shadow-card hover:border-primary/10'
+              }`}
+            >
+              <div className={`size-8 rounded-lg flex items-center justify-center mb-1.5 transition-colors ${
+                selectedCategory === cat.value ? 'bg-white/20' : 'bg-bgLight'
+              }`}>
+                <span className={`material-symbols-outlined text-[18px] ${selectedCategory === cat.value ? 'filled-icon' : ''}`}>
+                  {cat.icon}
+                </span>
+              </div>
+              <span className={`text-[9px] font-bold leading-tight px-1 ${
+                selectedCategory === cat.value ? 'opacity-100' : 'opacity-80'
+              }`}>
+                {cat.label}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Product Display */}
+      <div className={`px-4 mt-2 ${
+        viewMode === 'grid' 
+        ? 'grid grid-cols-2 gap-4' 
+        : 'space-y-4'
+      }`}>
+        {filteredProducts.length > 0 ? (
+          filteredProducts.map(p => (
+            <ProductCard key={p.id} product={p} mode={viewMode} onClick={() => onSelectProduct(p)} />
+          ))
+        ) : (
+          <div className="col-span-full text-center py-20 bg-white/50 rounded-3xl border-2 border-dashed border-gray-200">
+            <span className="material-symbols-outlined text-5xl text-gray-300 mb-3">manage_search</span>
+            <p className="text-gray-400 font-bold">Không tìm thấy sản phẩm nào</p>
+            <button onClick={() => {setSearchQuery(''); setSelectedCategory('all');}} className="mt-4 text-primary font-bold text-sm">Xóa bộ lọc</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const ProductCard = ({ product, mode, onClick }: { product: Product, mode: 'grid' | 'list', onClick: () => void }) => {
+  if (mode === 'grid') {
+    return (
+      <div 
+        onClick={onClick}
+        className="bg-white rounded-2xl overflow-hidden shadow-card border border-transparent hover:border-primary/10 transition-all flex flex-col group active:scale-95 cursor-pointer"
+      >
+        <div className="aspect-square w-full overflow-hidden bg-gray-50 relative">
+          <img src={product.image} className="size-full object-cover group-hover:scale-110 transition-transform duration-500" alt={product.name} />
+          <div className="absolute top-2 right-2 px-2 py-0.5 bg-white/90 backdrop-blur-sm rounded-lg text-[8px] font-black text-primary shadow-sm uppercase tracking-tighter">
+            {product.category}
+          </div>
+        </div>
+        <div className="p-3 flex-1 flex flex-col">
+          <h4 className="font-bold text-[13px] text-textMain line-clamp-2 leading-snug">{product.name}</h4>
+          <p className="text-[9px] font-bold text-textMuted mt-1 mb-3">SN: {product.model}</p>
+          <div className="mt-auto pt-2 flex items-center justify-between border-t border-gray-50">
+             <div className="flex gap-1">
+                <span className="text-[10px] font-black text-secondary">{product.price || 'LIÊN HỆ'}</span>
+             </div>
+             <span className="material-symbols-outlined text-secondary text-base">arrow_forward</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div 
+      onClick={onClick}
+      className="bg-white p-4 rounded-2xl shadow-card flex gap-4 border border-transparent hover:border-primary/10 transition-all active:scale-[0.98] group cursor-pointer"
+    >
+      <div className="size-20 rounded-xl overflow-hidden bg-gray-50 flex-shrink-0">
+        <img src={product.image} className="size-full object-cover group-hover:scale-110 transition-transform duration-500" alt={product.name} />
+      </div>
+      <div className="flex-1 flex flex-col justify-between">
+        <div>
+          <div className="flex justify-between items-start">
+            <h4 className="font-bold text-sm text-textMain line-clamp-1 flex-1">{product.name}</h4>
+          </div>
+          <p className="text-[10px] font-bold text-textMuted mt-0.5">Model: {product.model}</p>
+          <div className="mt-2 flex flex-wrap gap-x-2 gap-y-1">
+            {Object.entries(product.specs).slice(0, 2).map(([key, val]) => (
+              <span key={key} className="text-[9px] text-gray-400 font-medium bg-bgLight px-1.5 py-0.5 rounded">
+                {key}: {val}
+              </span>
+            ))}
+          </div>
+        </div>
+        <div className="flex gap-2 mt-2 pt-2 border-t border-gray-50">
+          <button className="flex-1 text-primary text-[10px] font-black uppercase text-left">
+            GIÁ: {product.price || 'LIÊN HỆ'}
+          </button>
+          <span className="material-symbols-outlined text-primary text-base">chevron_right</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- AUTH SCREEN ---
 const AuthScreen = ({ onLoginSuccess }: any) => {
   const [authMode, setAuthMode] = useState<'login' | 'signup' | 'forgot'>('login');
   const [viewPolicy, setViewPolicy] = useState<'terms' | 'privacy' | null>(null);
@@ -350,6 +793,60 @@ const HomeScreen = ({ onWarranty, onSupport }: any) => (
   </div>
 );
 
+// --- NOTIFICATIONS SCREEN ---
+const NotificationsScreen = ({ notifications, onMarkAllRead, onReadSingle }: { notifications: AppNotification[], onMarkAllRead: () => void, onReadSingle: (id: string) => void }) => {
+  const getIcon = (type: string) => {
+    switch (type) {
+      case 'warranty': return { icon: 'verified_user', color: 'bg-green-50 text-primary' };
+      case 'system': return { icon: 'bolt', color: 'bg-orange-50 text-secondary' };
+      case 'promotion': return { icon: 'shopping_bag', color: 'bg-blue-50 text-blue-500' };
+      case 'service': return { icon: 'support_agent', color: 'bg-purple-50 text-purple-500' };
+      default: return { icon: 'notifications', color: 'bg-gray-50 text-gray-400' };
+    }
+  };
+
+  return (
+    <div className="px-4 space-y-4 page-transition">
+      <div className="flex justify-between items-center mb-2 px-1">
+        <h3 className="text-primary text-sm font-bold uppercase tracking-wider opacity-80">Mới nhất</h3>
+        <button 
+          onClick={onMarkAllRead}
+          className="text-xs text-primary font-bold hover:underline active:opacity-60 transition-all"
+        >
+          Đánh dấu tất cả đã đọc
+        </button>
+      </div>
+      <div className="space-y-3">
+        {notifications.map(n => {
+          const { icon, color } = getIcon(n.type);
+          return (
+            <div 
+              key={n.id} 
+              onClick={() => onReadSingle(n.id)}
+              className={`bg-white p-4 rounded-2xl shadow-card flex gap-4 border transition-all cursor-pointer ${n.isRead ? 'border-transparent opacity-80' : 'border-primary/10 bg-primary/[0.02]'}`}
+            >
+              <div className={`size-12 rounded-xl flex items-center justify-center shrink-0 transition-transform ${color} ${!n.isRead ? 'scale-105' : ''}`}>
+                <span className="material-symbols-outlined text-[28px] filled-icon">{icon}</span>
+              </div>
+              <div className="flex-1 space-y-1">
+                <div className="flex justify-between items-start gap-2">
+                  <h4 className={`text-sm font-bold text-textMain leading-tight ${n.isRead ? '' : 'text-primary'}`}>{n.title}</h4>
+                  {!n.isRead && <span className="size-2.5 bg-primary rounded-full shrink-0 mt-1.5 shadow-sm shadow-primary/40 animate-pulse"></span>}
+                </div>
+                <p className="text-xs text-textMuted leading-relaxed">{n.description}</p>
+                <p className="text-[10px] text-gray-400 font-medium pt-1">{n.timestamp}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="text-center py-10 opacity-40">
+        <p className="text-xs font-medium">Bạn đã xem hết thông báo</p>
+      </div>
+    </div>
+  );
+};
+
 // --- SUPPORT MENU ---
 const SupportMenu = ({ onNavigate }: any) => (
   <div className="px-4 space-y-6 page-transition">
@@ -392,83 +889,8 @@ const SupportItem = ({ label, sub, icon, onClick }: any) => (
   </button>
 );
 
-// --- PRODUCTS SCREEN ---
-const CATEGORY_MAP: { label: string; value: ProductCategory }[] = [
-  { label: 'Tất cả', value: 'all' },
-  { label: 'Tấm pin', value: 'panel' },
-  { label: 'Biến tần', value: 'inverter' },
-  { label: 'Pin lưu trữ', value: 'battery' },
-  { label: 'Biến tần bơm', value: 'pump_inverter' },
-  { label: 'Thiết bị điện', value: 'electrical' },
-  { label: 'Tủ điện', value: 'cabinet' },
-];
-
-const ProductsScreen = () => {
-  const [selectedCategory, setSelectedCategory] = useState<ProductCategory>('all');
-
-  const filteredProducts = useMemo(() => {
-    if (selectedCategory === 'all') return PRODUCTS;
-    return PRODUCTS.filter(p => p.category === selectedCategory);
-  }, [selectedCategory]);
-
-  return (
-    <div className="page-transition">
-      <div className="px-4 mb-6">
-        <h3 className="text-primary text-sm font-bold uppercase tracking-wider mb-4 opacity-80">Danh mục sản phẩm</h3>
-        <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
-          {CATEGORY_MAP.map((cat) => (
-            <button
-              key={cat.value}
-              onClick={() => setSelectedCategory(cat.value)}
-              className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all border ${
-                selectedCategory === cat.value
-                  ? 'bg-primary text-white border-primary shadow-lg shadow-primary/20'
-                  : 'bg-white text-textMuted border-gray-100 hover:border-primary/30'
-              }`}
-            >
-              {cat.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="px-4 space-y-4">
-        {filteredProducts.length > 0 ? (
-          filteredProducts.map(p => (
-            <div key={p.id} className="bg-white p-4 rounded-2xl shadow-card flex gap-4 border border-transparent hover:border-primary/10 transition-colors">
-              <div className="size-24 rounded-xl overflow-hidden bg-gray-50 flex-shrink-0">
-                <img src={p.image} className="size-full object-cover" alt={p.name} />
-              </div>
-              <div className="flex-1 flex flex-col justify-between">
-                <div>
-                  <h4 className="font-bold text-sm text-textMain line-clamp-2">{p.name}</h4>
-                  <p className="text-[10px] font-bold text-textMuted mt-1">MODEL: {p.model}</p>
-                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
-                    {Object.entries(p.specs).slice(0, 2).map(([key, val]) => (
-                      <span key={key} className="text-[9px] text-gray-400 font-medium">{key}: {val}</span>
-                    ))}
-                  </div>
-                </div>
-                <div className="flex gap-2 mt-3">
-                  <button className="flex-1 bg-secondary text-white py-2 rounded-lg text-[10px] font-bold shadow-sm active:scale-95 transition-transform">Mua ngay</button>
-                  <button className="px-3 bg-bgLight text-textMuted py-2 rounded-lg text-[10px] font-bold border border-gray-100 active:scale-95 transition-transform">Chi tiết</button>
-                </div>
-              </div>
-            </div>
-          ))
-        ) : (
-          <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-gray-200">
-            <span className="material-symbols-outlined text-4xl text-gray-200 mb-2">inventory_2</span>
-            <p className="text-sm text-gray-400 font-medium">Chưa có sản phẩm trong mục này</p>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
 // --- ACCOUNT SCREEN ---
-const AccountScreen = ({ onLogout }: any) => (
+const AccountScreen = ({ onLogout, onEditProfile }: any) => (
   <div className="px-4 space-y-6 page-transition">
     <div className="bg-primary rounded-3xl p-6 text-white shadow-soft relative overflow-hidden">
       <div className="absolute -right-10 -top-10 size-40 bg-white/10 rounded-full blur-3xl"></div>
@@ -483,7 +905,7 @@ const AccountScreen = ({ onLogout }: any) => (
       </div>
     </div>
     <div className="space-y-2">
-      <AccountMenuItem label="Thông tin tài khoản" icon="person" />
+      <AccountMenuItem label="Thông tin tài khoản" icon="person" onClick={onEditProfile} />
       <AccountMenuItem label="Sản phẩm của tôi" icon="solar_power" />
       <AccountMenuItem label="Lịch sử bảo hành" icon="history" />
       <AccountMenuItem label="Đăng xuất" icon="logout" color="text-red-500" onClick={onLogout} />

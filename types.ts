@@ -1,7 +1,7 @@
 
-export type TabType = 'home' | 'products' | 'support' | 'account';
+export type TabType = 'home' | 'products' | 'support' | 'account' | 'notifications';
 
-export type ProductCategory = 'all' | 'panel' | 'inverter' | 'battery' | 'pump_inverter' | 'electrical' | 'cabinet';
+export type ProductCategory = 'all' | 'panel' | 'inverter' | 'battery' | 'pump_inverter' | 'electrical' | 'cabinet' | 'diy_combo';
 
 export interface Product {
   id: string;
@@ -33,4 +33,13 @@ export interface SupportTicket {
   description: string;
   status: 'received' | 'processing' | 'completed';
   createdAt: string;
+}
+
+export interface AppNotification {
+  id: string;
+  title: string;
+  description: string;
+  type: 'system' | 'warranty' | 'promotion' | 'service';
+  timestamp: string;
+  isRead: boolean;
 }

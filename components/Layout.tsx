@@ -8,9 +8,19 @@ interface LayoutProps {
   setActiveTab: (tab: TabType) => void;
   title: string;
   hideNav?: boolean;
+  unreadNotificationsCount?: number;
+  onBack?: () => void; // Prop mới để xử lý quay lại
 }
 
-const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, title, hideNav }) => {
+const Layout: React.FC<LayoutProps> = ({ 
+  children, 
+  activeTab, 
+  setActiveTab, 
+  title, 
+  hideNav, 
+  unreadNotificationsCount = 0,
+  onBack 
+}) => {
   return (
     <div className="flex flex-col min-h-screen">
       {/* Simulated Status Bar */}
@@ -20,13 +30,35 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, titl
       {!hideNav && (
         <header className="fixed top-0 w-full z-40 bg-bgLight/90 backdrop-blur-md pt-12 pb-2 px-4 border-b border-black/5 max-w-md mx-auto left-0 right-0">
           <div className="flex items-center justify-between h-12">
-            <button className="flex size-10 items-center justify-center rounded-full hover:bg-black/5 active:scale-95 transition-transform text-primary">
-              <span className="material-symbols-outlined text-[24px]">arrow_back_ios_new</span>
-            </button>
-            <h1 className="text-primary text-lg font-bold tracking-tight">{title}</h1>
-            <div className="size-10 flex items-center justify-center">
-              <span className="material-symbols-outlined text-primary text-[24px]">notifications</span>
+            {/* Nút quay lại linh hoạt */}
+            <div className="w-10">
+              {activeTab !== 'home' || onBack ? (
+                <button 
+                  onClick={onBack || (() => setActiveTab('home'))}
+                  className="flex size-10 items-center justify-center rounded-full hover:bg-black/5 active:scale-90 transition-all text-primary"
+                >
+                  <span className="material-symbols-outlined text-[22px] font-bold">
+                    {activeTab === 'home' && !onBack ? 'home' : 'arrow_back_ios_new'}
+                  </span>
+                </button>
+              ) : (
+                <div className="size-10 flex items-center justify-center text-primary/20">
+                  <span className="material-symbols-outlined text-[24px] filled-icon">bolt</span>
+                </div>
+              )}
             </div>
+
+            <h1 className="text-primary text-lg font-bold tracking-tight truncate px-2">{title}</h1>
+            
+            <button 
+              onClick={() => setActiveTab('notifications')}
+              className={`size-10 flex items-center justify-center rounded-full transition-colors relative ${activeTab === 'notifications' ? 'bg-primary/10 text-primary' : 'text-primary'}`}
+            >
+              <span className={`material-symbols-outlined text-[24px] ${activeTab === 'notifications' ? 'filled-icon' : ''}`}>notifications</span>
+              {unreadNotificationsCount > 0 && (
+                <span className="absolute top-2 right-2 size-2.5 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>
+              )}
+            </button>
           </div>
         </header>
       )}
@@ -54,7 +86,13 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, titl
               <span className={`text-[10px] mt-6 font-bold transition-opacity ${activeTab === 'support' ? 'opacity-100' : 'opacity-60'}`}>Hỗ trợ</span>
             </button>
 
-            <NavBtn label="Thông báo" icon="notifications" active={false} onClick={() => {}} />
+            <NavBtn 
+              label="Thông báo" 
+              icon="notifications" 
+              active={activeTab === 'notifications'} 
+              onClick={() => setActiveTab('notifications')}
+              hasBadge={unreadNotificationsCount > 0}
+            />
             <NavBtn label="Tài khoản" icon="person" active={activeTab === 'account'} onClick={() => setActiveTab('account')} />
           </div>
           <div className="h-5 w-full"></div>
@@ -64,10 +102,13 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, titl
   );
 };
 
-const NavBtn = ({ label, icon, active, onClick }: any) => (
-  <button onClick={onClick} className={`flex flex-col items-center gap-1 w-16 transition-colors ${active ? 'text-primary' : 'text-gray-400 hover:text-primary'}`}>
+const NavBtn = ({ label, icon, active, onClick, hasBadge }: any) => (
+  <button onClick={onClick} className={`flex flex-col items-center gap-1 w-16 transition-colors relative ${active ? 'text-primary' : 'text-gray-400 hover:text-primary'}`}>
     <span className={`material-symbols-outlined text-2xl ${active ? 'filled-icon' : ''}`}>{icon}</span>
     <span className={`text-[10px] font-medium tracking-tight ${active ? 'font-bold' : ''}`}>{label}</span>
+    {hasBadge && (
+      <span className="absolute top-0 right-4 size-2 bg-red-500 rounded-full border border-white"></span>
+    )}
   </button>
 );
 
