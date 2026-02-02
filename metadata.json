@@ -1,0 +1,7 @@
+{
+  "name": "SOLPOWER - Hệ thống Hỗ trợ Kỹ thuật",
+  "description": "Ứng dụng quản lý bảo hành và hỗ trợ kỹ thuật năng lượng mặt trời SOLPOWER. Cung cấp tính năng kiểm tra bảo hành, quét mã QR và gửi yêu cầu kỹ thuật thông minh.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
